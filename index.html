@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0b1020"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
+<title>OSM 移動咖啡車</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{box-sizing:border-box;--t:env(safe-area-inset-top,0px);--b:env(safe-area-inset-bottom,0px);--l:env(safe-area-inset-left,0px);--r:env(safe-area-inset-right,0px)}
+html,body{margin:0;height:100%;overflow:hidden;background:#0b1020;font-family:system-ui,"Noto Sans TC",sans-serif;color:#fff;user-select:none;-webkit-user-select:none}
+canvas#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+.hud{position:fixed;pointer-events:none;text-shadow:0 1px 4px #000}
+#top{left:calc(var(--l) + 12px);top:calc(var(--t) + 10px);font-size:15px;line-height:1.5}#top b{font-size:22px;color:#ffd84a}
+#mm{right:calc(var(--r) + 10px);top:calc(var(--t) + 10px);width:110px;height:110px;border-radius:50%;border:2px solid #fff8;background:#0008}
+#toast{left:50%;top:22%;transform:translateX(-50%);font-size:20px;font-weight:700;opacity:0;transition:opacity .3s;text-align:center;white-space:nowrap}
+#spd{right:calc(var(--r) + 14px);bottom:calc(var(--b) + 240px);font-size:13px}#spd b{font-size:26px}
+#attr{left:calc(var(--l) + 6px);bottom:calc(var(--b) + 2px);font-size:10px;opacity:.7}
+#stick{position:fixed;left:calc(var(--l) + 18px);bottom:calc(var(--b) + 22px);width:120px;height:120px;border-radius:50%;background:#fff2;border:2px solid #fff5;display:none;touch-action:none}
+#knob{position:absolute;left:35px;top:35px;width:50px;height:50px;border-radius:50%;background:#fffa}
+#brake{position:fixed;right:calc(var(--r) + 22px);bottom:calc(var(--b) + 40px);width:84px;height:84px;border-radius:50%;background:#e53a;border:2px solid #fff6;font-size:16px;color:#fff;display:none}
+@media(pointer:coarse){#stick,#brake,#sell{display:block}.kb{display:none}}
+#pick{position:fixed;inset:0;display:flex;flex-direction:column;background:#0b1020;padding:var(--t) var(--r) var(--b) var(--l)}
+#bar{display:flex;flex-wrap:wrap;gap:6px;padding:8px;align-items:center}
+#bar input,#bar select,#bar button{font-size:15px;padding:8px 10px;border-radius:8px;border:0}
+#q{flex:1;min-width:140px}
+#bar button{background:#2a4a9a;color:#fff}
+#mapw{position:relative;flex:1;min-height:0}#map{position:absolute;inset:0}
+#cross{position:absolute;left:50%;top:50%;width:34px;height:34px;margin:-17px 0 0 -17px;border:3px solid #e53;border-radius:50%;z-index:500;pointer-events:none}
+#cross:after{content:"";position:absolute;left:12px;top:12px;width:6px;height:6px;border-radius:50%;background:#e53}
+#foot{padding:8px;text-align:center}
+.go{font-size:20px;padding:12px 30px;border:0;border-radius:30px;background:#ffd84a;color:#222;font-weight:700}
+#foot small{display:block;margin-top:6px;opacity:.7}
+#load{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:#0b1020ee;font-size:20px;text-align:center;padding:20px;z-index:2000}
+#inst{display:none}
+#sell{position:fixed;right:calc(var(--r) + 22px);bottom:calc(var(--b) + 136px);width:84px;height:84px;border-radius:50%;background:#c8782fdd;border:2px solid #fff6;font-size:16px;color:#fff;display:none;touch-action:none}
+#hint{left:50%;bottom:calc(var(--b) + 96px);transform:translateX(-50%);font-size:16px;font-weight:700;color:#ffd84a;text-align:center;max-width:56vw}
+#end{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:#0b1020e6;text-align:center;z-index:1500;padding:20px;line-height:1.8}#end b{font-size:30px;color:#ffd84a}
+#lbox{width:min(86vw,420px)}#ltxt{margin-bottom:14px;min-height:28px}
+#lbar{height:14px;border-radius:8px;background:#fff2;overflow:hidden}#lfill{height:100%;width:0;background:linear-gradient(90deg,#ffa500,#ffd84a);border-radius:8px;transition:width .25s}
+#lpct{margin:8px 0 16px;font-size:15px;opacity:.8}#cancel{font-size:15px;padding:8px 22px;border-radius:20px;border:1px solid #fff8;background:none;color:#fff}
+</style></head><body>
+<canvas id="c"></canvas>
+<div class="hud" id="top"></div><canvas class="hud" id="mm" width="220" height="220"></canvas>
+<div class="hud" id="toast"></div><div class="hud" id="spd"></div><div class="hud" id="attr">地圖資料 © OpenStreetMap contributors (ODbL)</div>
+<div id="stick"><div id="knob"></div></div><button id="brake">煞車</button><button id="sell">☕<br>販售</button><div class="hud" id="hint"></div>
+<div id="end"><div><h2>今日打烊！</h2><p id="sum"></p><button class="go" id="again">再營業一天</button></div></div>
+<div id="pick">
+ <div id="bar">
+  <input id="q" placeholder="搜尋地點（如：高雄駁二、Shibuya）"><button id="sb">搜尋</button>
+  <select id="pre"><option value="">快速選點…</option>
+   <option value="25.0478,121.5170">台北車站</option><option value="25.0340,121.5645">台北101</option><option value="25.0421,121.5081">西門町</option>
+   <option value="22.6203,120.2817">高雄駁二</option><option value="35.6595,139.7005">東京澀谷</option><option value="40.7580,-73.9855">紐約時代廣場</option><option value="48.8738,2.2950">巴黎凱旋門</option></select>
+  <select id="rad"><option value="300">範圍 300m</option><option value="450" selected>範圍 450m</option><option value="650">範圍 650m</option></select>
+  <label style="font-size:14px"><input type="checkbox" id="tx" checked> 建築貼圖</label><button id="gps">📍 我的位置</button><button id="inst">安裝 App</button>
+ </div>
+ <div id="mapw"><div id="map"></div><div id="cross"></div></div>
+ <div id="foot"><button class="go" id="start">☕ 在紅圈處開始營業</button>
+  <small class="kb">鍵盤：W/↑ 加速　S/↓ 倒車　A/D/←/→ 轉向　空白鍵 煞車　E 出杯販售｜</small><small>拖曳地圖選擇地點，建築與道路取自 OpenStreetMap</small></div>
+</div>
+<div id="load"><div id="lbox"><div id="ltxt">準備中…</div><div id="lbar"><div id="lfill"></div></div><div id="lpct">0%</div><button id="cancel">取消</button></div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(()=>{
+const $=id=>document.getElementById(id),PI=Math.PI;
+// ---------- map picker ----------
+let c0=[25.0478,121.5170],z0=16;try{const s=JSON.parse(localStorage.getItem('osmrider'));if(s){c0=s.c;z0=s.z}}catch(e){}
+const map=L.map('map').setView(c0,z0);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);
+$('pre').onchange=e=>{if(e.target.value){map.setView(e.target.value.split(',').map(Number),16)}};
+$('gps').onclick=()=>navigator.geolocation&&navigator.geolocation.getCurrentPosition(p=>map.setView([p.coords.latitude,p.coords.longitude],16),()=>alert('無法取得位置'));
+async function search(){const q=$('q').value.trim();if(!q)return;try{const r=await(await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q='+encodeURIComponent(q))).json();r[0]?map.setView([+r[0].lat,+r[0].lon],16):alert('找不到地點')}catch(e){alert('搜尋失敗，請稍後再試')}}
+$('sb').onclick=search;$('q').onkeydown=e=>{if(e.key=='Enter')search()};
+
+// ---------- three ----------
+const cv=$('c'),ren=new THREE.WebGLRenderer({canvas:cv,antialias:true});ren.setPixelRatio(Math.min(devicePixelRatio,2));
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x8fc4e8);scene.fog=new THREE.Fog(0x8fc4e8,80,320);
+const cam=new THREE.PerspectiveCamera(65,1,.5,500);
+scene.add(new THREE.HemisphereLight(0xffffff,0x556070,.95));const sun=new THREE.DirectionalLight(0xfff0d0,.8);sun.position.set(80,120,40);scene.add(sun);
+const resize=()=>{ren.setSize(innerWidth,innerHeight,false);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()};addEventListener('resize',resize);resize();
+const g=new THREE.Mesh(new THREE.PlaneGeometry(3000,3000),new THREE.MeshLambertMaterial({color:0x6d7068}));g.rotation.x=-PI/2;scene.add(g);
+
+// ---------- OSM ----------
+const tick=()=>new Promise(r=>{let d=0;const f=()=>d||(d=1,r());requestAnimationFrame(()=>setTimeout(f,0));setTimeout(f,60)});
+function setP(p,t){p=Math.min(100,Math.round(p));$('lfill').style.width=p+'%';$('lpct').textContent=p+'%';if(t)$('ltxt').textContent=t}
+async function overpass(lat,lon,R,sig){const q=`[out:json][timeout:25];(way["building"](around:${R},${lat},${lon});way["highway"](around:${R},${lat},${lon}););out tags geom;`;
+ const us=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter','https://overpass.openstreetmap.fr/api/interpreter'];
+ const t0=Date.now(),ctls=us.map(()=>new AbortController()),fw=()=>ctls.forEach(c=>c.abort());sig.addEventListener('abort',fw);
+ const tm=setInterval(()=>{const t=(Date.now()-t0)/1000;setP(Math.min(9,3+t*.25),'等待伺服器回應… '+(t|0)+' 秒（同時連線 '+us.length+' 個伺服器，取最快者）')},400);
+ try{
+  const w=await new Promise((res,rej)=>{let fail=0;us.forEach((u,i)=>{const to=setTimeout(()=>ctls[i].abort(),40000);
+   fetch(u,{method:'POST',body:'data='+encodeURIComponent(q),headers:{'Content-Type':'application/x-www-form-urlencoded'},signal:ctls[i].signal})
+    .then(r=>{if(!r.ok)throw 0;res({r,i})}).catch(()=>{if(++fail==us.length)rej(0)}).finally(()=>clearTimeout(to))})});
+  clearInterval(tm);ctls.forEach((c,k)=>{if(k!=w.i)c.abort()});
+  setP(10,'已連上 '+new URL(us[w.i]).hostname+'，下載資料…');let txt;const r=w.r;
+  if(r.body&&r.body.getReader){const rd=r.body.getReader(),ch=[];let n=0;for(;;){const{done,value}=await rd.read();if(done)break;ch.push(value);n+=value.length;setP(10+30*(1-Math.exp(-n/700000)),'下載資料… '+((n/1024)|0)+' KB')}
+   const all=new Uint8Array(n);let o=0;for(const c of ch){all.set(c,o);o+=c.length}txt=new TextDecoder().decode(all)}else txt=await r.text();
+  setP(42,'解析資料…');await tick();return JSON.parse(txt).elements
+ }catch(e){if(sig.aborted)throw 'abort';throw 0}
+ finally{clearInterval(tm);sig.removeEventListener('abort',fw)}}
+const hs=id=>((id*2654435761)>>>0)/4294967296;
+const RT={motorway:[13,0x2b2d33],trunk:[12,0x2b2d33],primary:[11,0x2e3036],secondary:[10,0x2e3036],tertiary:[9,0x33353b],residential:[7,0x383a40],unclassified:[7,0x383a40],living_street:[6,0x45474c],service:[4.5,0x42444a],pedestrian:[6,0xa9a69c],footway:[2,0xb8b4a8],path:[2,0xb8b4a8],steps:[2,0xb8b4a8],cycleway:[2.5,0x9a7f7a]};
+const NOCAR=new Set(['footway','path','steps','cycleway','pedestrian','corridor','bridleway']);
+const CELL=30,grid=new Map(),boxes=[],roadsD=[],traffic=[],pool=[];let ORG=null,RAD=450,mini=null;
+let winT=null;function makeTex(){const c=document.createElement('canvas');c.width=c.height=256;const x=c.getContext('2d');x.fillStyle='#ebe8e0';x.fillRect(0,0,256,256);
+ for(let i=0;i<4;i++)for(let j=0;j<4;j++){const X=i*64,Y=j*64;x.fillStyle='#cfcabf';x.fillRect(X,Y+60,64,4);
+  x.fillStyle=Math.random()<.2?'#ffe7a0':(Math.random()<.5?'#3d5a7a':'#2f4a66');x.fillRect(X+14,Y+12,36,34);
+  x.fillStyle='#ffffff55';x.fillRect(X+14,Y+12,36,6);x.fillStyle='#b9b4a8';x.fillRect(X+11,Y+46,42,4);x.fillStyle='#00000030';x.fillRect(X+31,Y+12,2,34)}
+ const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;try{t.anisotropy=Math.min(8,ren.capabilities.getMaxAnisotropy()||1)}catch(e){}return t}
+function mergeGeo(list){let n=0;list.forEach(o=>n+=o.g.attributes.position.count);const p=new Float32Array(n*3),nm=new Float32Array(n*3),c=new Float32Array(n*3),uv=new Float32Array(n*2);let o=0;
+ for(const{g,col,off,offv}of list){const k=g.attributes.position.count,pa=g.attributes.position.array,na=g.attributes.normal.array;p.set(pa,o*3);nm.set(na,o*3);
+  for(let i=0;i<k;i++){const x=pa[i*3],y=pa[i*3+1],z=pa[i*3+2],nx=na[i*3],ny=na[i*3+1],nz=na[i*3+2],j=o+i,roof=Math.abs(ny)>.5,m=roof?.7:1;
+   c[j*3]=col.r*m;c[j*3+1]=col.g*m;c[j*3+2]=col.b*m;
+   if(roof){uv[j*2]=.02;uv[j*2+1]=.02}else{uv[j*2]=(-nz*x+nx*z)/16+off;uv[j*2+1]=y/13.2+offv}}
+  o+=k}
+ const G=new THREE.BufferGeometry();G.setAttribute('position',new THREE.BufferAttribute(p,3));G.setAttribute('normal',new THREE.BufferAttribute(nm,3));G.setAttribute('color',new THREE.BufferAttribute(c,3));G.setAttribute('uv',new THREE.BufferAttribute(uv,2));return G}
+function addSeg(a,b){const s={ax:a.x,az:a.z,bx:b.x,bz:b.z};const i0=Math.floor(Math.min(a.x,b.x)/CELL),i1=Math.floor(Math.max(a.x,b.x)/CELL),j0=Math.floor(Math.min(a.z,b.z)/CELL),j1=Math.floor(Math.max(a.z,b.z)/CELL);
+ for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){const k=i+','+j;(grid.get(k)||grid.set(k,[]).get(k)).push(s)}}
+async function build(els,lat0,lon0,R){
+ const kx=111320*Math.cos(lat0*PI/180),ky=110540,cvt=q=>({x:(q.lon-lon0)*kx,z:-(q.lat-lat0)*ky});RAD=R;
+ mini=document.createElement('canvas');mini.width=mini.height=2*R+40;const mx=mini.getContext('2d');mx.translate(R+20,R+20);mx.fillStyle='#232830';mx.fillRect(-R-20,-R-20,2*R+40,2*R+40);
+ const bl=[],rl=[];let nb=0;
+ for(let ei=0;ei<els.length;ei++){const e=els[ei];if(ei%120==0){setP(45+25*ei/els.length,'建立建築物與牆面碰撞… ('+nb+' 棟)');await tick()}if(!e.geometry||e.geometry.length<2)continue;const pts=e.geometry.map(cvt),t=e.tags||{};
+  if(t.building){if(nb>2500||pts.length<4)continue;nb++;pts.pop();
+   const sh=new THREE.Shape(pts.map(p=>new THREE.Vector2(p.x,-p.z)));let h=parseFloat(t.height)||(parseFloat(t['building:levels'])*3.3)||(6+hs(e.id)*16);h=Math.max(4,Math.min(300,h));
+   let gg=new THREE.ExtrudeGeometry(sh,{depth:h,bevelEnabled:false});gg.rotateX(-PI/2);if(gg.index)gg=gg.toNonIndexed();
+   bl.push({g:gg,col:new THREE.Color().setHSL(.07+hs(e.id+1)*.12,.12+.2*hs(e.id+2),.58+.22*hs(e.id+3)),off:hs(e.id+5)*10,offv:Math.floor(hs(e.id+6)*4)/4});
+   for(let i=0;i<pts.length;i++)addSeg(pts[i],pts[(i+1)%pts.length]);
+   mx.fillStyle='#5a6070';mx.beginPath();pts.forEach((p,i)=>i?mx.lineTo(p.x,p.z):mx.moveTo(p.x,p.z));mx.fill();
+  }else if(t.highway){const rt=RT[t.highway]||[6,0x3a3c42];rl.push({pts,w:rt[0],col:new THREE.Color(rt[1]),name:t.name||t['name:en']||'',car:!NOCAR.has(t.highway)})}}
+ setP(70,'繪製道路與小地圖…');await tick();
+ const rq=[];for(const r of rl){mx.strokeStyle=r.car?'#8a8f99':'#6a6f70';mx.lineWidth=r.w;mx.lineCap='round';mx.beginPath();r.pts.forEach((p,i)=>i?mx.lineTo(p.x,p.z):mx.moveTo(p.x,p.z));mx.stroke();
+  const y=r.car?.12:.16;for(let i=0;i<r.pts.length-1;i++){const a=r.pts[i],b=r.pts[i+1],dx=b.x-a.x,dz=b.z-a.z,l=Math.hypot(dx,dz)||1,nx=-dz/l*r.w/2,nz=dx/l*r.w/2;
+   rq.push({a:[a.x+nx,y,a.z+nz],b:[a.x-nx,y,a.z-nz],c:[b.x-nx,y,b.z-nz],d:[b.x+nx,y,b.z+nz],col:r.col})}
+  if(r.car)for(const p of r.pts)if(Math.hypot(p.x,p.z)<R*.9)pool.push({x:p.x,z:p.z,n:r.name})}
+ setP(82,'建立道路網格…');await tick();
+ const pa=new Float32Array(rq.length*18),pc=new Float32Array(rq.length*18),pn=new Float32Array(rq.length*18);rq.forEach((q,i)=>{[q.a,q.b,q.c,q.a,q.c,q.d].forEach((v,j)=>{const o=i*18+j*3;pa.set(v,o);pc.set([q.col.r,q.col.g,q.col.b],o);pn.set([0,1,0],o)})});
+ const RG=new THREE.BufferGeometry();RG.setAttribute('position',new THREE.BufferAttribute(pa,3));RG.setAttribute('color',new THREE.BufferAttribute(pc,3));RG.setAttribute('normal',new THREE.BufferAttribute(pn,3));
+ scene.add(new THREE.Mesh(RG,new THREE.MeshLambertMaterial({vertexColors:true,side:THREE.DoubleSide})));
+ setP(90,'合併建築模型…');await tick();
+ if(bl.length){let mat;try{if(!$('tx').checked)throw 0;winT=winT||makeTex();mat=new THREE.MeshLambertMaterial({vertexColors:true,map:winT})}catch(e){mat=new THREE.MeshLambertMaterial({vertexColors:true})}scene.add(new THREE.Mesh(mergeGeo(bl),mat))}
+ setP(95,'放置車流…');await tick();
+ const cr=rl.filter(r=>r.car);for(let i=0;i<24&&cr.length;i++){const r=cr[(hs(i+9)*cr.length)|0],cum=[0];for(let k=1;k<r.pts.length;k++)cum.push(cum[k-1]+Math.hypot(r.pts[k].x-r.pts[k-1].x,r.pts[k].z-r.pts[k-1].z));if(cum[cum.length-1]<40)continue;
+  const m=carMesh(i);scene.add(m);traffic.push({m,r,cum,tot:cum[cum.length-1],d:hs(i+3)*cum[cum.length-1],dir:i%2?1:-1,s:5+hs(i+5)*6,x:0,z:0})}
+ return pool.length>5}
+function carMesh(i){const gr=new THREE.Group(),col=new THREE.Color().setHSL(hs(i+40),.6,.5);
+ const b=new THREE.Mesh(new THREE.BoxGeometry(2.1,1,4.2),new THREE.MeshLambertMaterial({color:col}));b.position.y=.8;
+ const t=new THREE.Mesh(new THREE.BoxGeometry(1.8,.8,2.2),new THREE.MeshLambertMaterial({color:0x223}));t.position.set(0,1.6,-.2);gr.add(b,t);return gr}
+function stepTraffic(dt){for(const c of traffic){c.d+=c.dir*c.s*dt;if(c.d>c.tot){c.d=c.tot;c.dir=-1}if(c.d<0){c.d=0;c.dir=1}
+ let k=1;while(k<c.cum.length-1&&c.cum[k]<c.d)k++;const a=c.r.pts[k-1],b=c.r.pts[k],t=(c.d-c.cum[k-1])/((c.cum[k]-c.cum[k-1])||1);
+ c.x=a.x+(b.x-a.x)*t;c.z=a.z+(b.z-a.z)*t;c.m.position.set(c.x,0,c.z);c.m.rotation.y=Math.atan2(b.x-a.x,b.z-a.z)+(c.dir>0?0:PI)}}
+function collide(){const r=1.3,ci=Math.floor(S.x/CELL),cj=Math.floor(S.z/CELL);
+ for(let i=ci-1;i<=ci+1;i++)for(let j=cj-1;j<=cj+1;j++){const a=grid.get(i+','+j);if(!a)continue;
+  for(const s of a){const dx=s.bx-s.ax,dz=s.bz-s.az;let t=((S.x-s.ax)*dx+(S.z-s.az)*dz)/(dx*dx+dz*dz||1);t=Math.max(0,Math.min(1,t));
+   const ex=S.x-(s.ax+dx*t),ez=S.z-(s.az+dz*t),d=Math.hypot(ex,ez);if(d<r){const k=(r-d)/(d||1);S.x+=ex*k;S.z+=ez*k;S.v*=.75}}}}
+
+// ---------- player: coffee truck ----------
+const pl=new THREE.Group();{const mat=c=>new THREE.MeshLambertMaterial({color:c}),box=(w,h,d,c,x,y,z)=>{const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat(c));m.position.set(x,y,z);pl.add(m);return m};
+ box(2.2,.5,5.4,0x2a2a2e,0,.65,0);box(2.3,2.1,3.6,0xf4efe6,0,1.9,-.7);box(2.2,1.5,1.5,0x8a4b2a,0,1.55,1.9);box(2.0,.6,.05,0x9fd3ff,0,1.9,2.66);
+ box(.05,.9,1.6,0x222,1.18,2.1,-.7);box(1.3,.12,2.2,0xff7a2f,1.75,2.95,-.7).rotation.z=-.15;
+ const cup=new THREE.Mesh(new THREE.CylinderGeometry(.38,.28,.7,12),mat(0xffffff));cup.position.set(0,3.3,-1.2);pl.add(cup);
+ const sc=document.createElement('canvas');sc.width=256;sc.height=96;const sx=sc.getContext('2d');sx.fillStyle='#6b3f26';sx.fillRect(0,0,256,96);sx.fillStyle='#ffe9b0';sx.font='bold 46px sans-serif';sx.textAlign='center';sx.textBaseline='middle';sx.fillText('☕ COFFEE',128,50);
+ const sm=new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(sc)});const sg=new THREE.Mesh(new THREE.PlaneGeometry(3.2,1.2),sm);sg.position.set(-1.17,2.0,-.7);sg.rotation.y=-PI/2;pl.add(sg);
+ for(const x of[-1.1,1.1])for(const z of[-1.7,1.8]){const w=new THREE.Mesh(new THREE.CylinderGeometry(.48,.48,.35,12),mat(0x111));w.rotation.z=PI/2;w.position.set(x,.48,z);pl.add(w)}scene.add(pl)}
+const S={x:0,z:0,h:0,v:0,ch:0};
+const M={money:0,cups:30,sold:0,t:0,run:false,spots:[],depot:null,combo:0,cool:0,rs:0,ls:0},MAXC=40,DAY=300,N_SP=4;
+function pickPt(far){let p,n=0;do{p=pool[(Math.random()*pool.length)|0];n++}while(n<40&&Math.hypot(p.x-S.x,p.z-S.z)<far);return p}
+function mkSprite(){const cv=document.createElement('canvas');cv.width=256;cv.height=64;const tex=new THREE.CanvasTexture(cv),sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,fog:false}));sp.scale.set(20,5,1);sp.position.y=14;scene.add(sp);
+ sp.userData.draw=t=>{const x=cv.getContext('2d');x.clearRect(0,0,256,64);x.fillStyle='#000b';x.fillRect(0,0,256,64);x.fillStyle='#ffd84a';x.font='bold 26px sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText(t,128,34);tex.needsUpdate=true};return sp}
+function beaconMesh(col,h){const m=new THREE.Mesh(new THREE.CylinderGeometry(3,3,h,20,1,true),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.4,side:THREE.DoubleSide,depthWrite:false}));m.position.y=h/2;scene.add(m);return m}
+function person(i){const g=new THREE.Group(),b=new THREE.Mesh(new THREE.CylinderGeometry(.28,.34,1.1,8),new THREE.MeshLambertMaterial({color:new THREE.Color().setHSL(hs(i*3+11),.55,.5)}));b.position.y=.6;
+ const h=new THREE.Mesh(new THREE.SphereGeometry(.24,8,6),new THREE.MeshLambertMaterial({color:0xf1c9a0}));h.position.y=1.4;g.add(b,h);return g}
+function mkSpot(){const sp={x:0,z:0,n:'',price:60,cust:0,ppl:[],r:9,d:0};sp.beacon=beaconMesh(0xc8782f,60);
+ sp.ring=new THREE.Mesh(new THREE.RingGeometry(8,9,32),new THREE.MeshBasicMaterial({color:0xffd84a,side:THREE.DoubleSide,transparent:true,opacity:.7}));sp.ring.rotation.x=-PI/2;sp.ring.position.y=.3;scene.add(sp.ring);
+ sp.sprite=mkSprite();for(let i=0;i<10;i++){const p=person(i);scene.add(p);sp.ppl.push(p)}return sp}
+function place(sp){let p,n=0;do{p=pickPt(60);n++}while(n<60&&(M.spots.some(o=>o!==sp&&Math.hypot(o.x-p.x,o.z-p.z)<90)||(M.depot&&Math.hypot(M.depot.x-p.x,M.depot.z-p.z)<50)));
+ sp.x=p.x;sp.z=p.z;sp.n=p.n;sp.price=50+((Math.random()*5)|0)*10;sp.cust=6+((Math.random()*5)|0);
+ for(const o of[sp.beacon,sp.ring,sp.sprite]){o.position.x=sp.x;o.position.z=sp.z}
+ sp.sprite.userData.draw('☕ '+(sp.n||'熱點').slice(0,7)+' $'+sp.price);
+ sp.ppl.forEach((m,i)=>{const a=i/10*PI*2;m.position.set(sp.x+Math.cos(a)*5.5,0,sp.z+Math.sin(a)*5.5);m.visible=i<sp.cust})}
+const dep={b:beaconMesh(0x3aa0ff,50),s:mkSprite()};dep.s.userData.draw('🫘 補貨站');
+function startDay(){if(!M.depot){M.depot={x:S.x,z:S.z};dep.b.position.x=dep.s.position.x=S.x;dep.b.position.z=dep.s.position.z=S.z}
+ M.money=0;M.cups=30;M.sold=0;M.combo=0;M.ls=0;M.t=DAY;M.cool=0;M.rs=2;
+ if(!M.spots.length)for(let i=0;i<N_SP;i++)M.spots.push(mkSpot());M.spots.forEach(place);$('end').style.display='none';M.run=true;toast('☕ 開店！找人潮熱點，停車後按 E 販售')}
+function endDay(){if(!M.run)return;M.run=false;$('hint').textContent='';let best=0;try{best=+localStorage.getItem('osmcafe')||0;if(M.money>best){best=M.money;localStorage.setItem('osmcafe',best)}}catch(e){}
+ $('sum').innerHTML='今日營收 <b>$'+M.money+'</b><br>賣出 '+M.sold+' 杯｜最高紀錄 $'+best;$('end').style.display='flex'}
+$('again').onclick=startDay;
+let tt=0;function toast(s){const e=$('toast');e.textContent=s;e.style.opacity=1;clearTimeout(tt);tt=setTimeout(()=>e.style.opacity=0,1800)}
+
+// ---------- input ----------
+const K={};addEventListener('keydown',e=>{K[e.code]=1;if(e.code=='Space'&&M.run)e.preventDefault()});addEventListener('keyup',e=>K[e.code]=0);
+const J={x:0,y:0,brake:0,sell:0},st=$('stick'),kn=$('knob');let sid=null;
+function js(e){const r=st.getBoundingClientRect();let dx=(e.clientX-r.left-60)/50,dy=(e.clientY-r.top-60)/50;const l=Math.hypot(dx,dy);if(l>1){dx/=l;dy/=l}J.x=dx;J.y=-dy;kn.style.transform=`translate(${dx*35}px,${dy*35}px)`}
+st.addEventListener('pointerdown',e=>{sid=e.pointerId;st.setPointerCapture(sid);js(e)});st.addEventListener('pointermove',e=>{if(e.pointerId==sid)js(e)});
+const rel=e=>{if(e.pointerId==sid){sid=null;J.x=J.y=0;kn.style.transform=''}};st.addEventListener('pointerup',rel);st.addEventListener('pointercancel',rel);
+const sl=$('sell');sl.addEventListener('pointerdown',()=>J.sell=1);sl.addEventListener('pointerup',()=>J.sell=0);sl.addEventListener('pointercancel',()=>J.sell=0);
+const br=$('brake');br.addEventListener('pointerdown',()=>J.brake=1);br.addEventListener('pointerup',()=>J.brake=0);br.addEventListener('pointercancel',()=>J.brake=0);
+
+// ---------- loop ----------
+const mm=$('mm'),mc=mm.getContext('2d');let last=0;
+function loop(ts){requestAnimationFrame(loop);const dt=Math.min((ts-last)/1000||0,.05);last=ts;if(!M.run){ren.render(scene,cam);return}
+ stepTraffic(dt);
+ let th=(K.KeyW||K.ArrowUp?1:0)-(K.KeyS||K.ArrowDown?1:0)+J.y,sx=(K.KeyD||K.ArrowRight?1:0)-(K.KeyA||K.ArrowLeft?1:0)+J.x;th=Math.max(-1,Math.min(1,th));sx=Math.max(-1,Math.min(1,sx));
+ const tg=th>0?th*22:th*8;if(Math.abs(th)>.05)S.v+=(tg-S.v)*Math.min(1,(Math.abs(tg)>Math.abs(S.v)?1.2:2.5)*dt);else S.v*=1-1.1*dt;
+ if(K.Space||J.brake)S.v*=1-4.5*dt;
+ S.h-=sx*2.3/(1+Math.abs(S.v)*.05)*Math.min(1,S.v/6)*dt;S.x+=Math.sin(S.h)*S.v*dt;S.z+=Math.cos(S.h)*S.v*dt;
+ const dr=Math.hypot(S.x,S.z),lim=RAD-15;if(dr>lim){S.x*=lim/dr;S.z*=lim/dr;S.v*=.8}
+ collide();
+ for(const c of traffic){const d=Math.hypot(S.x-c.x,S.z-c.z);if(d<2.8){const nx=(S.x-c.x)/(d||1),nz=(S.z-c.z)/(d||1);S.x+=nx*(2.8-d);S.z+=nz*(2.8-d);if(Math.abs(S.v)>6){M.money=Math.max(0,M.money-10);if(M.cups>0)M.cups--;toast('💥 擦撞！咖啡灑了 -$10、-1 杯')}S.v*=-.3}}
+ M.t-=dt;M.cool-=dt;M.rs-=dt;const still=Math.abs(S.v)<2.5;let near=null,hot=null;
+ for(const sp of M.spots){sp.d=Math.hypot(sp.x-S.x,sp.z-S.z);if(!hot||sp.d<hot.d)hot=sp;if(sp.d<sp.r&&(!near||sp.d<near.d))near=sp}
+ const dd=Math.hypot(M.depot.x-S.x,M.depot.z-S.z);let hint='';
+ if(dd<9&&M.cups<MAXC){if(!still)hint='停下車子即可補貨（每杯 $10）';else if(M.rs<=0){M.rs=3;let n=Math.min(MAXC-M.cups,Math.floor(M.money/10));if(n<=0&&M.cups==0){n=10;toast('🫘 店長贊助 10 杯')}else if(n>0){M.money-=n*10;toast('🫘 補貨 +'+n+' 杯（-$'+n*10+'）')}M.cups+=Math.max(0,n)}}
+ if(near){if(!still)hint='請減速停車再販售（9 km/h 以下）';else if(M.cups<=0)hint='咖啡賣完了！回補貨站補貨';
+  else{hint='☕ 按 E／販售鍵出杯｜排隊 '+near.cust+' 人｜單價 $'+near.price;
+   if((K.KeyE||K.Enter||J.sell)&&M.cool<=0){M.cool=.45;const now=performance.now();M.combo=now-M.ls<1500?M.combo+1:1;M.ls=now;const tip=Math.min(20,(M.combo-1)*2);
+    M.money+=near.price+tip;M.cups--;M.sold++;near.cust--;near.ppl.forEach((m,i)=>m.visible=i<near.cust);toast('+$'+near.price+(tip?' ＋小費 $'+tip:''));
+    if(near.cust<=0){toast('🎉 客人都買完了！新熱點出現');place(near)}}}}
+ $('hint').textContent=hint;if(M.t<=0)endDay();
+ const tm=Math.max(0,M.t|0);
+ $('top').innerHTML=`<b>$${M.money}</b>　☕ ${M.cups}/${MAXC}<br>📍 ${hot.n||'人潮熱點'}（${Math.round(hot.d)}m｜排隊 ${hot.cust}）<br>🫘 補貨站 ${Math.round(dd)}m<br>⏱ ${(tm/60)|0}:${String(tm%60).padStart(2,'0')}`;
+ $('spd').innerHTML=`<b>${Math.round(Math.abs(S.v)*3.6)}</b> km/h`;
+ pl.position.set(S.x,0,S.z);pl.rotation.y=S.h;
+ const dh=Math.atan2(Math.sin(S.h-S.ch),Math.cos(S.h-S.ch));S.ch+=dh*Math.min(1,3.5*dt);const sp=Math.abs(S.v);
+ cam.position.set(S.x-Math.sin(S.ch)*(9+sp*.12),5.2+sp*.04,S.z-Math.cos(S.ch)*(9+sp*.12));cam.lookAt(S.x+Math.sin(S.ch)*5,1.8,S.z+Math.cos(S.ch)*5);
+ const bs=1+Math.sin(ts/250)*.06;M.spots.forEach(sp=>sp.ring.scale.set(bs,bs,bs));
+ mc.clearRect(0,0,220,220);mc.save();mc.beginPath();mc.arc(110,110,108,0,7);mc.clip();mc.fillStyle='#232830';mc.fillRect(0,0,220,220);
+ mc.translate(110,110);mc.rotate(S.h+PI);mc.scale(.9,.9);mc.translate(-S.x,-S.z);mc.drawImage(mini,-RAD-20,-RAD-20);
+ for(const sp of M.spots){mc.fillStyle='#d9904a';mc.beginPath();mc.arc(sp.x,sp.z,10,0,7);mc.fill()}mc.fillStyle='#3aa0ff';mc.beginPath();mc.arc(M.depot.x,M.depot.z,8,0,7);mc.fill();mc.restore();
+ mc.fillStyle='#fff';mc.beginPath();mc.moveTo(110,98);mc.lineTo(117,118);mc.lineTo(103,118);mc.fill();
+ ren.render(scene,cam)}
+requestAnimationFrame(loop);
+
+let abort=null;$('cancel').onclick=()=>{if(abort)abort.abort();$('load').style.display='none'};
+$('start').onclick=async()=>{const c=map.getCenter(),R=+$('rad').value;try{localStorage.setItem('osmrider',JSON.stringify({c:[c.lat,c.lng],z:map.getZoom()}))}catch(e){}
+ const ctl=abort=new AbortController();let built=false;$('cancel').style.display='';$('load').style.display='flex';setP(2,'準備中…');
+ try{const els=await overpass(c.lat,c.lng,R,ctl.signal);$('cancel').style.display='none';built=true;
+  if(!(await build(els,c.lat,c.lng,R)))throw 1;
+  setP(98,'定位出發點…');await tick();
+  const p=pool.reduce((a,b)=>Math.hypot(b.x,b.z)<Math.hypot(a.x,a.z)?b:a);S.x=p.x;S.z=p.z;
+  const q=pool.find(o=>o!==p&&Math.hypot(o.x-p.x,o.z-p.z)>4&&Math.hypot(o.x-p.x,o.z-p.z)<40)||{x:p.x,z:p.z+1};S.h=S.ch=Math.atan2(q.x-p.x,q.z-p.z);
+  setP(100,'完成！出發！');await tick();
+  $('pick').style.display='none';$('load').style.display='none';startDay();
+  if(document.documentElement.requestFullscreen&&matchMedia('(pointer:coarse)').matches)document.documentElement.requestFullscreen().catch(()=>{})
+ }catch(e){if(ctl.signal.aborted)return;$('load').style.display='none';alert('此處無法載入道路資料（可能網路或 Overpass 伺服器忙碌，或該區域資料不足），請換個地點或縮小範圍再試。\n（錯誤：'+String(e&&e.message||e)+'）');if(built)location.reload()}};
+
+// ---------- PWA ----------
+try{const ic=n=>{const c=document.createElement('canvas');c.width=c.height=n;const x=c.getContext('2d');x.fillStyle='#0b1020';x.fillRect(0,0,n,n);x.font=n*.6+'px serif';x.textAlign='center';x.textBaseline='middle';x.fillText('☕',n/2,n/2+n*.04);return c.toDataURL()};
+ const man={name:'OSM 移動咖啡車',short_name:'咖啡車',start_url:location.href.split('#')[0],display:'standalone',orientation:'any',background_color:'#0b1020',theme_color:'#0b1020',icons:[{src:ic(192),sizes:'192x192',type:'image/png'},{src:ic(512),sizes:'512x512',type:'image/png'}]};
+ const l=document.createElement('link');l.rel='manifest';l.href=URL.createObjectURL(new Blob([JSON.stringify(man)],{type:'application/manifest+json'}));document.head.appendChild(l);
+ const ai=document.createElement('link');ai.rel='apple-touch-icon';ai.href=ic(180);document.head.appendChild(ai)}catch(e){}
+try{if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{})}catch(e){}
+let dp;addEventListener('beforeinstallprompt',e=>{e.preventDefault();dp=e;$('inst').style.display='inline-block'});$('inst').onclick=()=>dp&&dp.prompt();
+})();
+</script></body></html>
